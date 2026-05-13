@@ -18,7 +18,7 @@ A Python CLI tool and AI agent skill for downloading full-resolution images from
 
 ```bash
 # Clone the repository
-git clone https://github.com/jrc/get_bnd_purl.git
+git clone https://github.com/joaquimrcarvalho/get_bnd_purl.git
 cd get_bnd_purl
 
 # Make the script executable
@@ -75,4 +75,4 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ## Author
 
-José Carlos Rodrigues (<https://github.com/jrc>)
+Joaquim Ramos de Carvalho (<https://github.com/joaquimrcarvalho>)
