@@ -1,3 +1,9 @@
+---
+name: bnp-digital-download
+description: Downloads high resolution images from the Biblioteca Nacional de Portugal digital library (purl.pt). Use when the user wants to download images from a digital document hosted on purl.pt or permalinkbnd.bnportugal.gov.pt.
+version: 1.0.0
+---
+
 # BNP Digital Download Skill
 
 Downloads high resolution images from the Biblioteca Nacional de Portugal digital library (purl.pt).

@@ -25,7 +25,11 @@ cd get_bnd_purl
 chmod +x bnp_downloader.py
 ```
 
-Some agents are able to install the skill directly from the repository at clone https://github.com/joaquimrcarvalho/get-bnd-purl.git . Tested: MiniMax, Qoder Work
+Some agents are able to install the skill directly from the repository at https://github.com/joaquimrcarvalho/get-bnd-purl.git . 
+
+>  Install skill from [github.com/joaquimrcarvalho/get-bnd-purl.git](https://github.com/joaquimrcarvalho/get-bnd-purl.git)
+
+Tested: MiniMax code, Qoder Work, Perplexity Computer
 
 ### Usage
 
