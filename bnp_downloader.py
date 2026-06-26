@@ -29,12 +29,55 @@ class BNPDownloader:
 
     def __init__(self, purl_url: str, output_dir: str = None, workers: int = 8):
         self.purl_url = self._normalize_purl(purl_url)
-        self.record_id = self._extract_record_id()
-        self.output_dir = output_dir or f"purl-{self.record_id}-images"
+        self.purl_id = self._extract_record_id()
+        self.record_id = self.purl_id  # may be updated by _resolve_purl
+        self.output_dir = output_dir or f"purl-{self.purl_id}-images"
         self.workers = workers
         self.uuid = None
         self.doc_prefix = None
         self.total_pages = 0
+
+    @staticmethod
+    def _fetch_html(url: str, timeout: int = 30) -> str:
+        """Fetch a URL and return its HTML content as a string."""
+        req = Request(url, headers={
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+                          'AppleWebKit/537.36 (KHTML, like Gecko) '
+                          'Chrome/120.0.0.0 Safari/537.36'
+        })
+        with urlopen(req, timeout=timeout) as response:
+            return response.read().decode('utf-8', errors='ignore')
+
+    def _resolve_purl(self) -> str:
+        """Resolve a purl.pt URL to the internal permalinkbnd record ID.
+
+        Tries copy numbers /1 through /6, following the redirect chain:
+            purl.pt/{id}/{copy} → permalinkbnd.bnportugal.gov.pt/idurl/...
+                                → /records/item/{internal_id}-slug
+        Returns the internal record ID, or the original purl_id on failure.
+        """
+        for copy_num in range(1, 7):
+            resolve_url = f"https://purl.pt/{self.purl_id}/{copy_num}"
+            try:
+                req = Request(resolve_url, headers={
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+                                  'AppleWebKit/537.36 (KHTML, like Gecko) '
+                                  'Chrome/120.0.0.0 Safari/537.36'
+                })
+                with urlopen(req, timeout=30) as response:
+                    final_url = response.geturl()
+                # Extract internal ID from /records/item/{id}-slug or /viewer/{id}/
+                for pattern in [r'/records/item/(\d+)', r'/viewer/(\d+)', r'/idurl/\d+/(\d+)']:
+                    match = re.search(pattern, final_url)
+                    if match:
+                        internal_id = match.group(1)
+                        if internal_id != self.purl_id:
+                            print(f"Resolved purl.pt/{self.purl_id} → internal ID {internal_id} (copy {copy_num})")
+                        return internal_id
+            except Exception:
+                continue
+        print(f"Warning: Could not resolve purl.pt URL, using original ID")
+        return self.purl_id
 
     def _normalize_purl(self, url: str) -> str:
         """Normalize PURL to full URL."""
@@ -52,45 +95,103 @@ class BNPDownloader:
             return match.group(1)
         return self.purl_url.rstrip('/').split('/')[-1]
 
-    def discover(self) -> dict:
-        """Discover image server configuration from viewer page."""
-        viewer_url = f"{self.BASE_URL}/viewer/{self.record_id}/"
-        print(f"Discovering from: {viewer_url}")
-
-        try:
-            req = Request(viewer_url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urlopen(req, timeout=30) as response:
-                html = response.read().decode('utf-8', errors='ignore')
-        except HTTPError as e:
-            raise Exception(f"Failed to access viewer: {e}")
-
-        # Find IIIF URL in HTML
+    def _parse_iiif(self, html: str) -> bool:
+        """Parse IIIF configuration from HTML. Returns True if successful."""
         iiif_match = re.search(r'IIIF=([^&"]+)', html)
         if not iiif_match:
-            raise Exception("Could not find IIIF URL in viewer page")
+            return False
 
         iiif_thumb = iiif_match.group(1)
-        print(f"Found IIIF path: {iiif_thumb[:50]}...")
+        print(f"Found IIIF path: {iiif_thumb[:60]}...")
 
         # Parse UUID and document prefix
         # Pattern: /uuid/iiif/doc_prefix_page.tif/...
         parts = iiif_thumb.split('/iiif/')
         if len(parts) < 2:
-            raise Exception("Invalid IIIF URL format")
+            return False
 
+        # Keep UUID as-is (includes leading /) — required for IIIF URL format
         self.uuid = parts[0]
         doc_with_page = parts[1].split('/')[0]
         doc_with_page = re.sub(r'_\d{6}\.tif$', '', doc_with_page)
         self.doc_prefix = doc_with_page
+        return True
 
-        # Find total pages from the HTML
-        pages_match = re.search(r'/(\d+)\s*$', html, re.MULTILINE)
-        if pages_match:
-            self.total_pages = int(pages_match.group(1))
-        else:
-            self.total_pages = 384  # Default fallback
+    def _detect_page_count(self, html: str) -> int:
+        """Detect total pages from HTML by finding the highest 6-digit page number."""
+        # Find all 6-digit zero-padded page numbers in IIIF references
+        page_nums = re.findall(r'_(\d{6})\.tif', html)
+        if page_nums:
+            max_page = max(int(p) for p in page_nums)
+            return max_page
+        return 0
 
-        print(f"Document ID: {self.record_id}")
+    def _probe_last_page(self) -> int:
+        """Probe IIIF URLs to find the last valid page via binary search."""
+        def page_exists(page: int) -> bool:
+            url = self.get_image_url(page)
+            try:
+                req = Request(url, method='HEAD', headers={
+                    'User-Agent': 'Mozilla/5.0 (compatible; BNP-Downloader/1.0)'
+                })
+                with urlopen(req, timeout=15) as resp:
+                    return resp.status == 200
+            except Exception:
+                return False
+
+        # Exponential search to find upper bound
+        upper = 100
+        while page_exists(upper) and upper < 2000:
+            upper *= 2
+
+        # Binary search between upper/2 and upper
+        low, high = upper // 2, upper
+        while low < high:
+            mid = (low + high + 1) // 2
+            if page_exists(mid):
+                low = mid
+            else:
+                high = mid - 1
+        return low
+
+    def discover(self) -> dict:
+        """Discover image server configuration from viewer page."""
+        # Resolve purl.pt URLs to internal record ID
+        if 'purl.pt' in self.purl_url:
+            self.record_id = self._resolve_purl()
+
+        viewer_url = f"{self.BASE_URL}/viewer/{self.record_id}/"
+        print(f"Discovering from: {viewer_url}")
+
+        html = None
+        try:
+            html = self._fetch_html(viewer_url)
+        except HTTPError as e:
+            if e.code == 403:
+                # Fallback: try the /records/item/ page which may be accessible
+                print(f"Viewer returned 403, trying /records/item/ fallback...")
+                try:
+                    records_url = f"{self.BASE_URL}/records/item/{self.record_id}"
+                    html = self._fetch_html(records_url)
+                except Exception:
+                    pass
+            if html is None:
+                raise Exception(f"Failed to access viewer: {e}")
+
+        # Parse IIIF configuration
+        if not self._parse_iiif(html):
+            raise Exception("Could not find IIIF URL in viewer page")
+
+        # Detect page count: probe IIIF server for accurate count
+        # (viewer HTML typically only contains a single thumbnail reference)
+        html_hint = self._detect_page_count(html)
+        if html_hint > 0:
+            print(f"HTML hint: at least {html_hint} page(s) referenced")
+        self.total_pages = self._probe_last_page()
+        print(f"Probed last page: {self.total_pages}")
+
+        print(f"Document ID: {self.purl_id}"
+              + (f" (internal: {self.record_id})" if self.record_id != self.purl_id else ""))
         print(f"UUID: {self.uuid}")
         print(f"Prefix: {self.doc_prefix}")
         print(f"Total pages: {self.total_pages}")
@@ -141,6 +242,8 @@ class BNPDownloader:
         print(f"Using {self.workers} parallel workers\n")
 
         stats = {'success': 0, 'error': 0, 'skipped': 0, 'total_bytes': 0}
+        completed = 0
+        total_expected = end_page - start_page + 1
         start_time = time.time()
 
         with ThreadPoolExecutor(max_workers=self.workers) as executor:
@@ -153,11 +256,12 @@ class BNPDownloader:
                 page, status, size = future.result()
                 stats[status] += 1
                 stats['total_bytes'] += size
+                completed += 1
 
-                if stats['success'] % 50 == 0 or stats['success'] + stats['error'] == end_page - start_page + 1:
+                if completed % 50 == 0 or completed == total_expected:
                     elapsed = time.time() - start_time
-                    rate = stats['success'] / elapsed if elapsed > 0 else 0
-                    print(f"Progress: {stats['success'] + stats['error']}/{end_page - start_page + 1} "
+                    rate = completed / elapsed if elapsed > 0 else 0
+                    print(f"Progress: {completed}/{total_expected} "
                           f"(+{stats['error']} errors) - {rate:.1f} pages/sec")
 
         elapsed = time.time() - start_time

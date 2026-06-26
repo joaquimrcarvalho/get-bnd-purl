@@ -18,12 +18,14 @@ A Python CLI tool and AI agent skill for downloading full-resolution images from
 
 ```bash
 # Clone the repository
-git clone https://github.com/joaquimrcarvalho/get_bnd_purl.git
+git clone https://github.com/joaquimrcarvalho/get-bnd-purl.git
 cd get_bnd_purl
 
 # Make the script executable
 chmod +x bnp_downloader.py
 ```
+
+Some agents are able to install the skill directly from the repository at clone https://github.com/joaquimrcarvalho/get-bnd-purl.git . Tested: MiniMax, Qoder Work
 
 ### Usage
 
@@ -75,4 +77,4 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ## Author
 
-Joaquim Ramos de Carvalho (<https://github.com/joaquimrcarvalho>)
+Joaquim Ramos de Carvalho ([https://github.com/joaquimrcarvalho](https://github.com/joaquimrcarvalho)) with MiniMax and Qoder (Qwen).

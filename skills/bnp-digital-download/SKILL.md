@@ -10,13 +10,15 @@ When the user wants to download high resolution images from a digital document h
 
 ## How It Works
 
-1. **Extract the image server ID**: Parse the viewer page HTML to find the IIIF image server URL
-2. **Discover document prefix**: Extract the document identifier from the IIIF URL
-3. **Generate high-res URLs**: Create the high resolution image URLs using the pattern:
+1. **Resolve the PURL URL**: Follow the redirect chain from `purl.pt/{id}/1` to discover the internal permalinkbnd record ID (the PURL ID and the internal viewer ID are often different)
+2. **Extract the image server ID**: Parse the viewer page HTML to find the IIIF image server URL
+3. **Discover document prefix**: Extract the document identifier from the IIIF URL
+4. **Detect page count**: Scan HTML for page references, or probe the IIIF server to find the last valid page
+5. **Generate high-res URLs**: Create the high resolution image URLs using the pattern:
    ```
    https://permalinkbnd.bnportugal.gov.pt/i/?IIIF={uuid}/iiif/{doc_prefix}_{page}.tif/full/max/0/default.jpg
    ```
-4. **Download images**: Transfer all pages in parallel
+6. **Download images**: Transfer all pages in parallel
 
 ## Usage
 
@@ -40,13 +42,27 @@ Download pages 10-50 from https://purl.pt/183 to ./pages-10-50
 
 ## Technical Details
 
-### URL Pattern Discovery
+### URL Resolution
 
-1. Access the viewer page: `https://permalinkbnd.bnportugal.gov.pt/viewer/{record_id}/`
-2. Extract the IIIF thumbnail URL from the HTML (contains `IIIF=` parameter)
-3. Parse the UUID from the IIIF path
-4. Extract the document prefix
-5. Note the page number suffix format: `_000001.tif` to `_000384.tif`
+The PURL ID (e.g., `40245`) is **not** always the same as the internal permalinkbnd viewer ID (e.g., `257885`). The script resolves this by trying copy numbers `/1` through `/6` and following the redirect chain:
+
+```
+purl.pt/{id}/{copy}
+  → 302 permalinkbnd.bnportugal.gov.pt/idurl/.../{internal_id}
+  → 302 /records/item/{internal_id}-slug
+  → 200
+```
+
+The IIIF viewer copy number varies per document (e.g., purl.pt/40245 uses copy `/1`, purl.pt/183 uses copy `/6`). If resolution fails for all copies, the script falls back to using the original PURL ID.
+
+### 403 Fallback
+
+Some viewer URLs (`/viewer/{id}/`) return HTTP 403 even with a valid internal ID. When this happens, the script automatically retries via the `/records/item/` endpoint, which serves the same IIIF metadata.
+
+### Page Count Detection
+
+1. **Primary (probe)**: Probe the IIIF server with exponential search (100, 200, 400...) then binary search to find the exact last valid page
+2. **HTML hint**: Scan viewer HTML for any 6-digit zero-padded page references as a sanity check (the viewer typically only contains a single thumbnail, so this is not used for the actual count)
 
 ### High Resolution URL Template
 
@@ -64,5 +80,5 @@ https://permalinkbnd.bnportugal.gov.pt/i/?IIIF={uuid}/iiif/{prefix}_{padded_page
 
 - Use parallel downloads for efficiency
 - Page numbers are zero-padded 6 digits: 1 → 000001, 121 → 000121
-- Total pages vary by document
+- Total pages are detected automatically (no hardcoded defaults)
 - Save images with naming pattern: `hires_{page_num}.jpg`
