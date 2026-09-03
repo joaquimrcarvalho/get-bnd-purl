@@ -34,8 +34,6 @@ cd get_bnd_purl
 chmod +x bnp_downloader.py
 ```
 
-
-
 ### Usage
 
 ```bash
@@ -64,7 +62,7 @@ The tool automatically discovers the IIIF image server configuration by:
 1. Accessing the BNP viewer page for the document
 2. Extracting the IIIF URL and document identifier from the HTML
 3. Generating high-resolution image URLs using the discovered pattern
-4. Downloading all pages in parallel
+4. Downloading pages in parallel (within limits).
 
 ## Examples
 
