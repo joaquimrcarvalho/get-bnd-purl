@@ -46,8 +46,8 @@ chmod +x bnp_downloader.py
 # Download specific page range
 ./bnp_downloader.py https://purl.pt/183 --pages 10-50
 
-# Use more parallel workers for faster download
-./bnp_downloader.py 183 --workers 16
+# Parallel workers are capped at 8 (sensible limit to avoid overwhelming the server)
+./bnp_downloader.py 183 --workers 8
 ```
 
 ## Requirements

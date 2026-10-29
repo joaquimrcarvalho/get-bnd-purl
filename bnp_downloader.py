@@ -27,15 +27,31 @@ class BNPDownloader:
     BASE_URL = "https://permalinkbnd.bnportugal.gov.pt"
     IMAGE_SERVER = "https://permalinkbnd.bnportugal.gov.pt/i/"
 
+    # Sensible bounds for parallel workers. More than this risks overwhelming
+    # the BNP image server and exhausting local threads/memory.
+    MIN_WORKERS = 1
+    MAX_WORKERS = 8
+
     def __init__(self, purl_url: str, output_dir: str = None, workers: int = 8):
         self.purl_url = self._normalize_purl(purl_url)
         self.purl_id = self._extract_record_id()
         self.record_id = self.purl_id  # may be updated by _resolve_purl
         self.output_dir = output_dir or f"purl-{self.purl_id}-images"
-        self.workers = workers
+        self.workers = self._clamp_workers(workers)
         self.uuid = None
         self.doc_prefix = None
         self.total_pages = 0
+
+    @classmethod
+    def _clamp_workers(cls, workers: int) -> int:
+        """Clamp the number of parallel workers to a sensible range."""
+        if workers < cls.MIN_WORKERS:
+            print(f"Warning: workers={workers} too low, using {cls.MIN_WORKERS}")
+            return cls.MIN_WORKERS
+        if workers > cls.MAX_WORKERS:
+            print(f"Warning: workers={workers} exceeds maximum, using {cls.MAX_WORKERS}")
+            return cls.MAX_WORKERS
+        return workers
 
     @staticmethod
     def _fetch_html(url: str, timeout: int = 30) -> str:
@@ -283,7 +299,8 @@ def main():
     parser.add_argument('purl', help='PURL URL or number (e.g., 183 or https://purl.pt/183)')
     parser.add_argument('--output', '-o', help='Output directory')
     parser.add_argument('--pages', help='Page range (e.g., 10-50)')
-    parser.add_argument('--workers', '-w', type=int, default=8, help='Parallel workers')
+    parser.add_argument('--workers', '-w', type=int, default=8,
+                        help=f'Parallel workers (max {BNPDownloader.MAX_WORKERS})')
 
     args = parser.parse_args()
 
